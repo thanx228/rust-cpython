@@ -280,7 +280,7 @@ def generate_case(pattern, old_info=None, new_info=None, new_impl=None, new_slot
                             write('%s: $%s_slot_value:tt,\n' % (slot, slot))
                     write(']\n')
             else:
-                write('$%s:tt' % group_name)
+                write(f'${group_name}:tt')
         write('\n}\n')
     else:
         write('$slots:tt')
@@ -320,7 +320,7 @@ def generate_case(pattern, old_info=None, new_info=None, new_impl=None, new_slot
                             write('%s: { %s },\n' % (slot, slot_value))
                 write(']\n')
             else:
-                write('$%s' % group_name)
+                write(f'${group_name}')
         write('\n}\n')
     else:
         write('$slots')
@@ -643,7 +643,9 @@ def error(special_name, msg):
 
 @special_method
 def unimplemented(special_name):
-    return error('%s is not supported by py_class! yet.' % special_name)(special_name)
+    return error(f'{special_name} is not supported by py_class! yet.')(
+        special_name
+    )
 
 @special_method
 def normal_method(special_name):
@@ -668,18 +670,18 @@ def operator(special_name, slot,
 ):
     def optref(arg, suffix = ""):
         if arg.allow_ref:
-            return "Option<&$%s_name%s>" % (arg.name, suffix)
+            return f"Option<&${arg.name}_name{suffix}>"
         else:
-            return "$%s_name%s" % (arg.name, suffix)
+            return f"${arg.name}_name{suffix}"
 
     def ref(arg, suffix = ""):
         if arg.allow_ref:
-            return "&$%s_name%s" % (arg.name, suffix)
+            return f"&${arg.name}_name{suffix}"
         else:
-            return "$%s_name%s" % (arg.name, suffix)
+            return f"${arg.name}_name{suffix}"
 
     def normal(arg, suffix = ""):
-        return "$%s_name%s" % (arg.name, suffix)
+        return f"${arg.name}_name{suffix}"
 
     if args:
         operator_impl(special_name, slot, args, res_type, res_conv, res_ffi_type, additional_slots, optref)
@@ -700,26 +702,53 @@ def operator_impl(special_name, slot, args, res_type, res_conv, res_ffi_type, ad
         elif res_type == 'PyObject':
             res_conv = '$crate::_detail::PyObjectCallbackConverter'
         else:
-            res_conv = '$crate::_detail::PythonObjectCallbackConverter::<$crate::%s>(std::marker::PhantomData)' % res_type
+            res_conv = f'$crate::_detail::PythonObjectCallbackConverter::<$crate::{res_type}>(std::marker::PhantomData)'
+
     arg_pattern = ''
     param_list = []
     for arg in args:
         arg_pattern += ', ${0}:ident : {1}'.format(arg.name, typefunc(arg, ":ty"))
         param_list.append('{{ ${0} : {1} = {{}} }}'.format(arg.name, typefunc(arg)))
     if slot == 'sq_contains':
-        new_slots = [(slot, '$crate::py_class_contains_slot!($class::%s, [%s])' % (special_name, typefunc(args[0])))]
+        new_slots = [
+            (
+                slot,
+                f'$crate::py_class_contains_slot!($class::{special_name}, [{typefunc(args[0])}])',
+            )
+        ]
+
     elif slot == 'tp_richcompare':
-        new_slots = [(slot, '$crate::py_class_richcompare_slot!($class::%s, [%s], %s, %s)'
-                            % (special_name, typefunc(args[0]), res_ffi_type, res_conv))]
+        new_slots = [
+            (
+                slot,
+                f'$crate::py_class_richcompare_slot!($class::{special_name}, [{typefunc(args[0])}], {res_ffi_type}, {res_conv})',
+            )
+        ]
+
     elif len(args) == 0:
-        new_slots = [(slot, '$crate::py_class_unary_slot!($class::%s, %s, %s)'
-                             % (special_name, res_ffi_type, res_conv))]
+        new_slots = [
+            (
+                slot,
+                f'$crate::py_class_unary_slot!($class::{special_name}, {res_ffi_type}, {res_conv})',
+            )
+        ]
+
     elif len(args) == 1:
-        new_slots = [(slot, '$crate::py_class_binary_slot!($class::%s, [%s], %s, %s)'
-                             % (special_name, typefunc(args[0]), res_ffi_type, res_conv))]
+        new_slots = [
+            (
+                slot,
+                f'$crate::py_class_binary_slot!($class::{special_name}, [{typefunc(args[0])}], {res_ffi_type}, {res_conv})',
+            )
+        ]
+
     elif len(args) == 2:
-        new_slots = [(slot, '$crate::py_class_ternary_slot!($class::%s, [%s], %s, %s, %s)'
-                             % (special_name, typefunc(args[0]), typefunc(args[1]), res_ffi_type, res_conv))]
+        new_slots = [
+            (
+                slot,
+                f'$crate::py_class_ternary_slot!($class::{special_name}, [{typefunc(args[0])}], {typefunc(args[1])}, {res_ffi_type}, {res_conv})',
+            )
+        ]
+
     else:
         raise ValueError('Unsupported argument count')
     generate_case(
@@ -735,31 +764,41 @@ def call_operator(special_name, slot):
         special_name=special_name,
         slot=slot,
         value_macro='py_class_call_slot',
-        value_args='$class::%s' % special_name)
+        value_args=f'$class::{special_name}',
+    )
 
 @special_method
 def numeric_operator(special_name, arity, slot):
     if arity == 'binary':
-      argnames = ['left', 'right']
+        argnames = ['left', 'right']
     elif arity == 'ternary':
       argnames = ['left', 'right', 'ex']
     else:
-      error("Invalid arity %s" % arity)
-    def_args_str = ', '.join("$%s:ident" % name for name in argnames)
+        error(f"Invalid arity {arity}")
+    def_args_str = ', '.join(f"${name}:ident" for name in argnames)
     impl_args_str = ' '.join("{ $%s : &$crate::PyObject = {} }" % name for name in argnames)
     generate_case(
         pattern='def %s(%s) -> $res_type:ty { $($body:tt)* }'
-            % (special_name, def_args_str),
+        % (special_name, def_args_str),
         new_impl='$crate::py_class_impl_item! { $class, $py, pub, %s() $res_type; { $($body)* } [ %s ] }'
-            % (special_name, impl_args_str),
-        new_slots=[(slot, '$crate::py_class_numeric_slot!(%s $class::%s)' % (arity, special_name))]
+        % (special_name, impl_args_str),
+        new_slots=[
+            (
+                slot,
+                f'$crate::py_class_numeric_slot!({arity} $class::{special_name})',
+            )
+        ],
     )
-    error('Invalid signature for %s numeric operator %s' % (arity, special_name))(special_name)
+
+    error(f'Invalid signature for {arity} numeric operator {special_name}')(
+        special_name
+    )
 
 @special_method
 def reflected_numeric_operator(special_name):
-    error('Reflected numeric operator %s is not supported by py_class! Use __%s__ instead!'
-            % (special_name, special_name[3:-2]))(special_name)
+    error(
+        f'Reflected numeric operator {special_name} is not supported by py_class! Use __{special_name[3:-2]}__ instead!'
+    )(special_name)
 
 @special_method
 def inplace_numeric_operator(special_name, slot):
